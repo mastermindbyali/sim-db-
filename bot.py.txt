@@ -1,0 +1,120 @@
+from telegram import Update
+from telegram.ext import (
+    Application,
+    CommandHandler,
+    MessageHandler,
+    ContextTypes,
+    filters,
+)
+
+from config import BOT_TOKEN
+from api_client import search_record
+
+
+def format_result(data: dict) -> str:
+    """
+    Apni API response structure ke mutabiq edit kar lo.
+    Example supported formats:
+    {
+      "success": true,
+      "result": {
+        "name": "Ali",
+        "id": "12345",
+        "status": "active"
+      }
+    }
+
+    ya
+
+    {
+      "results": [
+        {"name": "Ali", "id": "12345"},
+        {"name": "Ahmed", "id": "67890"}
+      ]
+    }
+    """
+
+    if not data:
+        return "Koi result nahi mila."
+
+    if "result" in data and isinstance(data["result"], dict):
+        result = data["result"]
+        lines = ["Result:"]
+        for k, v in result.items():
+            lines.append(f"{k}: {v}")
+        return "\n".join(lines)
+
+    if "results" in data and isinstance(data["results"], list):
+        if not data["results"]:
+            return "Koi result nahi mila."
+
+        lines = []
+        for i, item in enumerate(data["results"][:10], start=1):
+            lines.append(f"{i}.")
+            for k, v in item.items():
+                lines.append(f"   {k}: {v}")
+        return "\n".join(lines)
+
+    return str(data)
+
+
+async def start_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "Bot online hai.\n\n"
+        "Use:\n"
+        "/search <text>\n\n"
+        "Example:\n"
+        "/search test"
+    )
+
+
+async def help_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "/start - bot start\n"
+        "/help - help menu\n"
+        "/search <text> - API se search"
+    )
+
+
+async def search_cmd(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    if not context.args:
+        await update.message.reply_text("Usage: /search <text>")
+        return
+
+    query = " ".join(context.args).strip()
+
+    try:
+        await update.message.reply_text("Searching...")
+        data = await search_record(query)
+        text = format_result(data)
+
+        # Telegram message limit ko mind me rakhte hue
+        if len(text) > 4000:
+            text = text[:4000] + "\n\n...truncated"
+
+        await update.message.reply_text(text)
+
+    except Exception as e:
+        await update.message.reply_text(f"Error: {str(e)}")
+
+
+async def text_handler(update: Update, context: ContextTypes.DEFAULT_TYPE):
+    await update.message.reply_text(
+        "Command use karo:\n/search <text>"
+    )
+
+
+def main():
+    app = Application.builder().token(BOT_TOKEN).build()
+
+    app.add_handler(CommandHandler("start", start_cmd))
+    app.add_handler(CommandHandler("help", help_cmd))
+    app.add_handler(CommandHandler("search", search_cmd))
+    app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, text_handler))
+
+    print("Bot started...")
+    app.run_polling(drop_pending_updates=True)
+
+
+if __name__ == "__main__":
+    main()
